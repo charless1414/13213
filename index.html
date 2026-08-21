@@ -37,7 +37,7 @@
       </div>
 
       <div class="space-y-2">
-        <input type="text" id="roomIdInput" placeholder="Enter 6-Digit Code" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white font-bold focus:outline-none uppercase tracking-widest text-center">
+        <input type="text" id="roomIdInput" placeholder="ENTER 6-DIGIT CODE" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white font-bold focus:outline-none uppercase tracking-widest text-center">
         <button id="btn-join" type="button" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-3 rounded-lg shadow transition">
           🚀 Join Room
         </button>
@@ -71,7 +71,7 @@
     const firebaseConfig = {
       apiKey: "YOUR_API_KEY",
       authDomain: "YOUR_PROJECT.firebaseapp.com",
-      databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com", // MUST include exact URL
+      databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
       projectId: "YOUR_PROJECT",
       storageBucket: "YOUR_PROJECT.appspot.com",
       messagingSenderId: "123456789",
@@ -105,11 +105,6 @@
           firebase.initializeApp(firebaseConfig);
         }
         db = firebase.database();
-        
-        // Force HTTP Long-Polling if WebSockets hang on GitHub Pages
-        if (db.INTERNAL && db.INTERNAL.forceWebSockets) {
-          firebase.database.INTERNAL.forceLongPolling();
-        }
 
         statusEl.innerText = "GitHub Pages Connected to Firebase!";
         statusEl.className = "text-center text-xs text-emerald-400 bg-emerald-950/40 p-2 rounded mb-4 border border-emerald-800/50";
@@ -130,10 +125,10 @@
       currentRoomId = makeCode();
       isHost = true;
 
-      // 1. Immediately switch UI on client side (Prevents local interface freeze)
+      // Switch UI on client side immediately
       enterRoomUI();
 
-      // 2. Async write data to Firebase with explicit failure callback
+      // Async write to Firebase
       const roomRef = db.ref(`rooms/${currentRoomId}`);
       roomRef.set({
         hostId: myPlayerId,
@@ -175,7 +170,6 @@
       document.getElementById('disp-room').innerText = currentRoomId;
       document.getElementById('disp-role').innerText = isHost ? "Host 👑" : "Player";
 
-      // Instantly render current player locally
       renderLocalPlayer();
 
       // Disconnect listener for cleanup
