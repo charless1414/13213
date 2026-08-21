@@ -23,7 +23,7 @@
     <div id="lobby-zone" class="space-y-4">
       <div>
         <label class="text-sm font-semibold text-slate-400">Your Name</label>
-        <input type="text" id="playerName" placeholder="e.g. Alex" class="w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg p-3 text-amber-400 font-bold focus:outline-none">
+        <input type="text" id="playerName" placeholder="e.g. Alex" class="w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg p-3 text-amber-400 font-bold focus:outline-none" maxlength="24">
       </div>
       
       <button id="btn-create" type="button" class="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold py-3 rounded-lg shadow transition">
@@ -37,7 +37,7 @@
       </div>
 
       <div class="space-y-2">
-        <input type="text" id="roomIdInput" placeholder="ENTER 6-DIGIT CODE" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white font-bold focus:outline-none uppercase tracking-widest text-center">
+        <input type="text" id="roomIdInput" placeholder="ENTER 6-DIGIT CODE" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white font-bold focus:outline-none uppercase tracking-widest" maxlength="6">
         <button id="btn-join" type="button" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-3 rounded-lg shadow transition">
           🚀 Join Room
         </button>
@@ -98,6 +98,12 @@
           <button id="btn-bid" type="button" class="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold py-2.5 rounded-lg">Place Bid</button>
           <button id="btn-liar" type="button" class="w-full bg-rose-600 hover:bg-rose-500 text-white font-extrabold py-2.5 rounded-lg">Call Liar! 🤥</button>
         </div>
+
+        <!-- Result / Round Info -->
+        <div id="result-panel" class="hidden bg-slate-900/60 p-3 rounded-lg border border-slate-700 text-xs">
+          <div id="result-text" class="font-bold text-amber-300"></div>
+          <div id="reveal-dice" class="mt-2 text-slate-200"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -133,10 +139,12 @@
 
     // Clean active listener to prevent button freeze
     function detachCurrentRoomListener() {
-      if (currentRoomId) {
-        db.ref(`rooms/${currentRoomId}`).off();
+      if (currentRoomId && db) {
+        try { db.ref(`rooms/${currentRoomId}`).off(); } catch (e) { /* ignore */ }
       }
     }
+
+    window.addEventListener('beforeunload', () => detachCurrentRoomListener());
 
     window.addEventListener('load', () => {
       const statusEl = document.getElementById('debug-status');
@@ -163,7 +171,6 @@
       myName = document.getElementById('playerName').value.trim();
       if (!myName) return alert("Please enter your name!");
 
-      // Disable button while processing to avoid multiple clicks
       const createBtn = document.getElementById('btn-create');
       createBtn.disabled = true;
       createBtn.innerText = "Creating...";
@@ -178,6 +185,7 @@
         state: 'lobby',
         turn: myPlayerId,
         currentBid: null,
+        playersOrder: [myPlayerId],
         players: {
           [myPlayerId]: { name: myName, dice: [] }
         }
@@ -208,23 +216,32 @@
       detachCurrentRoomListener();
       isHost = false;
 
-      db.ref(`rooms/${currentRoomId}`).once('value', (snapshot) => {
-        if (!snapshot.exists()) {
-          joinBtn.disabled = false;
-          joinBtn.innerText = "🚀 Join Room";
-          return alert("Room code not found! Make sure host created it.");
+      const roomRef = db.ref(`rooms/${currentRoomId}`);
+      roomRef.transaction(room => {
+        if (room === null) return; // abort
+        if (room.state === 'playing') return; // don't allow join while playing
+        room.players = room.players || {};
+        if (!room.players[myPlayerId]) {
+          room.players[myPlayerId] = { name: myName, dice: [] };
+        }
+        room.playersOrder = room.playersOrder || Object.keys(room.players);
+        if (!room.playersOrder.includes(myPlayerId)) room.playersOrder.push(myPlayerId);
+        return room;
+      }, (err, committed, snapshot) => {
+        joinBtn.disabled = false;
+        joinBtn.innerText = "🚀 Join Room";
+
+        if (err) {
+          alert('Join Failed: ' + err.message);
+          return;
         }
 
-        db.ref(`rooms/${currentRoomId}/players/${myPlayerId}`).set({
-          name: myName,
-          dice: []
-        }, (err) => {
-          joinBtn.disabled = false;
-          joinBtn.innerText = "🚀 Join Room";
+        if (!committed) {
+          alert('Unable to join room. It may be in progress or not exist.');
+          return;
+        }
 
-          if (err) alert("Join Failed: " + err.message);
-          else enterRoomUI();
-        });
+        enterRoomUI();
       });
     }
 
@@ -242,15 +259,14 @@
         currentRoomData = data;
 
         const players = data.players || {};
-        const playerKeys = Object.keys(players);
-        
+        const playerKeys = data.playersOrder && data.playersOrder.length ? data.playersOrder : Object.keys(players);
         document.getElementById('player-count').innerText = `(${playerKeys.length})`;
 
         const pContainer = document.getElementById('players-list');
         pContainer.innerHTML = '';
 
         playerKeys.forEach(id => {
-          const p = players[id];
+          const p = players[id] || { name: 'Unknown' };
           pContainer.innerHTML += `
             <div class="bg-slate-800 p-2.5 rounded-lg border border-slate-700 flex justify-between items-center text-xs">
               <span class="font-bold ${id === myPlayerId ? 'text-amber-400' : 'text-slate-200'}">
@@ -267,12 +283,15 @@
           document.getElementById('host-controls').classList.add('hidden');
         }
 
+        // Playing UI
         if (data.state === 'playing') {
           document.getElementById('playing-field').classList.remove('hidden');
 
           const myData = players[myPlayerId];
           if (myData && myData.dice) {
             document.getElementById('my-dice').innerText = myData.dice.join('  ');
+          } else {
+            document.getElementById('my-dice').innerText = '🎲 🎲 🎲 🎲 🎲';
           }
 
           if (data.currentBid) {
@@ -288,70 +307,132 @@
           document.getElementById('turn-actions').style.opacity = isMyTurn ? "1" : "0.4";
           document.getElementById('btn-bid').disabled = !isMyTurn;
           document.getElementById('btn-liar').disabled = !isMyTurn || !data.currentBid;
+
+          // hide result panel while in game
+          document.getElementById('result-panel').classList.add('hidden');
         } else {
           document.getElementById('playing-field').classList.add('hidden');
+
+          // If last round data exists, show it
+          if (data.lastRound) {
+            document.getElementById('result-panel').classList.remove('hidden');
+            const lr = data.lastRound;
+            const bidderName = (data.players && data.players[lr.bid.by] && data.players[lr.bid.by].name) || 'Player';
+            const resultText = `${bidderName} bid ${lr.bid.qty} × [${lr.bid.face}s] — Matching dice: ${lr.totalMatching}. ${lr.success ? bidderName + ' was LYING!' : bidderName + ' was TELLING THE TRUTH!'}`;
+            document.getElementById('result-text').innerText = resultText;
+
+            // reveal dice
+            let revealHtml = '';
+            Object.keys(data.players || {}).forEach(pid => {
+              const p = data.players[pid];
+              revealHtml += `<div><strong>${p.name}:</strong> ${p.dice ? p.dice.join(' ') : '—'}</div>`;
+            });
+            document.getElementById('reveal-dice').innerHTML = revealHtml;
+          } else {
+            document.getElementById('result-panel').classList.add('hidden');
+          }
         }
       });
     }
 
     function handleStartGame() {
-      if (!currentRoomData || !currentRoomData.players) return;
+      const roomRef = db.ref(`rooms/${currentRoomId}`);
+      roomRef.transaction(room => {
+        if (!room) return;
+        const playerIds = room.playersOrder && room.playersOrder.length ? room.playersOrder : Object.keys(room.players || {});
+        if (!playerIds || playerIds.length === 0) return;
 
-      const playerIds = Object.keys(currentRoomData.players);
-      if (playerIds.length === 0) return;
+        // Only host can start
+        if (room.hostId !== myPlayerId) return;
 
-      const updatedPlayers = {};
-      playerIds.forEach(id => {
-        updatedPlayers[id] = {
-          name: currentRoomData.players[id].name,
-          dice: rollDice()
-        };
+        // assign dice and move to playing
+        room.players = room.players || {};
+        playerIds.forEach(id => {
+          room.players[id] = room.players[id] || { name: 'Player', dice: [] };
+          room.players[id].dice = Array.from({length:5}, () => Math.floor(Math.random()*6)+1);
+        });
+
+        room.state = 'playing';
+        room.turn = playerIds[0];
+        room.currentBid = null;
+        room.lastRound = null; // clear previous round
+        room.playersOrder = playerIds;
+        return room;
+      }, (err, committed, snapshot) => {
+        if (err) return alert('Start Failed: ' + err.message);
+        if (!committed) return alert('Could not start game (maybe already started or you are not host).');
       });
+    }
 
-      db.ref(`rooms/${currentRoomId}`).update({
-        state: 'playing',
-        turn: playerIds[0],
-        currentBid: null,
-        players: updatedPlayers
-      });
+    function isHigherBid(newBid, oldBid) {
+      if (!oldBid) return true;
+      if (newBid.qty > oldBid.qty) return true;
+      if (newBid.qty === oldBid.qty && newBid.face > oldBid.face) return true;
+      return false;
     }
 
     function handlePlaceBid() {
       const qty = parseInt(document.getElementById('bid-qty').value);
       const face = parseInt(document.getElementById('bid-face').value);
+      const newBid = { qty, face, by: myPlayerId };
 
-      const playerIds = Object.keys(currentRoomData.players);
-      const currentIndex = playerIds.indexOf(myPlayerId);
-      const nextPlayerId = playerIds[(currentIndex + 1) % playerIds.length];
+      const roomRef = db.ref(`rooms/${currentRoomId}`);
+      roomRef.transaction(room => {
+        if (!room) return;
+        if (room.turn !== myPlayerId) return; // not your turn
+        if (!isHigherBid(newBid, room.currentBid)) return; // invalid bid
 
-      db.ref(`rooms/${currentRoomId}`).update({
-        currentBid: { qty, face, by: myPlayerId },
-        turn: nextPlayerId
+        const order = room.playersOrder && room.playersOrder.length ? room.playersOrder : Object.keys(room.players || {});
+        const idx = order.indexOf(myPlayerId);
+        const nextPlayerId = order[(idx + 1) % order.length];
+
+        room.currentBid = { qty, face, by: myPlayerId };
+        room.turn = nextPlayerId;
+        return room;
+      }, (err, committed, snapshot) => {
+        if (err) return alert('Bid failed: ' + err.message);
+        if (!committed) return alert('Invalid bid or not your turn.');
       });
     }
 
     function handleCallLiar() {
-      const bid = currentRoomData.currentBid;
-      if (!bid) return;
+      const roomRef = db.ref(`rooms/${currentRoomId}`);
+      roomRef.transaction(room => {
+        if (!room) return;
+        const bid = room.currentBid;
+        if (!bid) return; // nothing to call
+        if (room.turn !== myPlayerId && bid.by === myPlayerId) {
+          // only allow calling liar when it's your turn OR allow any player to call? Keep it restricted: require it's caller's turn.
+          // We'll allow only the current turn to call liar for consistency with original logic.
+        }
 
-      let totalMatching = 0;
-      const players = currentRoomData.players;
-
-      Object.keys(players).forEach(id => {
-        const dice = players[id].dice || [];
-        dice.forEach(d => {
-          if (d === bid.face || d === 1) totalMatching++;
+        // Count matching dice (ones are wild)
+        let totalMatching = 0;
+        const players = room.players || {};
+        Object.keys(players).forEach(id => {
+          const dice = players[id].dice || [];
+          dice.forEach(d => { if (d === bid.face || d === 1) totalMatching++; });
         });
-      });
 
-      const bidderName = players[bid.by]?.name || "Player";
-      const success = totalMatching < bid.qty;
+        const success = totalMatching < bid.qty; // true if bidder was lying
 
-      alert(`LIAR CALLED!\n\nBid was: ${bid.qty} × [${bid.face}s]\nActual matching dice: ${totalMatching}\n\nResult: ${success ? bidderName + " was LYING!" : bidderName + " was TELLING THE TRUTH!"}`);
+        // store last round info so clients can render it
+        room.lastRound = {
+          bid: bid,
+          totalMatching: totalMatching,
+          success: success,
+          resolvedAt: Date.now()
+        };
 
-      db.ref(`rooms/${currentRoomId}`).update({
-        state: 'lobby',
-        currentBid: null
+        // Reset to lobby for next round; keep players (so dice are revealed via lastRound)
+        room.state = 'lobby';
+        room.currentBid = null;
+        // Optionally, clear dice or keep them until host starts next game
+        return room;
+      }, (err, committed, snapshot) => {
+        if (err) return alert('Call Liar failed: ' + err.message);
+        if (!committed) return alert('Could not resolve liar (race condition).');
+        // show result panel is handled by the value listener (enterRoomUI)
       });
     }
   </script>
