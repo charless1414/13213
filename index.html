@@ -44,7 +44,7 @@
       </div>
     </div>
 
-    <!-- ROOM ZONE -->
+    <!-- ROOM / GAME ZONE -->
     <div id="game-zone" class="hidden space-y-4">
       <div class="bg-slate-900 p-4 rounded-xl border border-slate-700 text-center space-y-1">
         <div class="text-xs text-slate-400 uppercase font-semibold">Room Code</div>
@@ -57,17 +57,52 @@
         <div id="players-list" class="space-y-2"></div>
       </div>
 
+      <!-- LOBBY CONTROLS -->
       <div id="host-controls" class="hidden">
         <button id="btn-start" type="button" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-3 rounded-lg">Start Game</button>
       </div>
-      <div id="player-controls" class="hidden">
-        <button id="btn-ready" type="button" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-3 rounded-lg">Ready Up</button>
+
+      <!-- IN-GAME BOARD -->
+      <div id="playing-field" class="hidden space-y-4 pt-2 border-t border-slate-700">
+        <!-- MY DICE -->
+        <div class="bg-slate-900 p-4 rounded-xl border border-slate-700 text-center">
+          <div class="text-xs text-slate-400 uppercase font-semibold mb-2">Your Secret Dice</div>
+          <div id="my-dice" class="flex justify-center gap-2 text-2xl font-black text-amber-400">🎲 🎲 🎲 🎲 🎲</div>
+        </div>
+
+        <!-- CURRENT BID INFO -->
+        <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-700 text-center">
+          <div class="text-xs text-slate-400 uppercase font-semibold">Current Bid</div>
+          <div id="disp-bid" class="text-xl font-bold text-slate-200 mt-1">No bids yet</div>
+          <div id="turn-indicator" class="text-xs font-bold text-amber-400 mt-2">-- Turn</div>
+        </div>
+
+        <!-- ACTIONS -->
+        <div id="turn-actions" class="space-y-3">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-xs text-slate-400">Quantity</label>
+              <select id="bid-qty" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-amber-400 font-bold">
+                <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">Face Value</label>
+              <select id="bid-face" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-amber-400 font-bold">
+                <option value="1">1s ⚀</option><option value="2">2s ⚁</option><option value="3">3s ⚂</option>
+                <option value="4">4s ⚃</option><option value="5">5s ⚄</option><option value="6">6s ⚅</option>
+              </select>
+            </div>
+          </div>
+          <button id="btn-bid" type="button" class="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold py-2.5 rounded-lg">Place Bid</button>
+          <button id="btn-liar" type="button" class="w-full bg-rose-600 hover:bg-rose-500 text-white font-extrabold py-2.5 rounded-lg">Call Liar! 🤥</button>
+        </div>
       </div>
     </div>
   </div>
 
   <script>
-    // ⚠️ REPLACE VALUES WITH YOUR FIREBASE PROJECT CONFIG
     const firebaseConfig = {
       apiKey: "YOUR_API_KEY",
       authDomain: "YOUR_PROJECT.firebaseapp.com",
@@ -81,64 +116,55 @@
     let db;
     let myPlayerId = 'p_' + Math.random().toString(36).substr(2, 8);
     let myName = '', currentRoomId = '', isHost = false;
+    let currentRoomData = null;
 
     function makeCode() {
       const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
       let code = '';
-      for (let i = 0; i < 6; i++) {
-        code += chars.charAt(Math.floor(Math.random() * chars.length));
-      }
+      for (let i = 0; i < 6; i++) { code += chars.charAt(Math.floor(Math.random() * chars.length)); }
       return code;
+    }
+
+    function rollDice() {
+      return Array.from({length: 5}, () => Math.floor(Math.random() * 6) + 1);
     }
 
     window.addEventListener('load', () => {
       const statusEl = document.getElementById('debug-status');
-
-      if (typeof firebase === 'undefined') {
-        statusEl.innerText = "Error: Firebase CDN blocked on GitHub Pages!";
-        statusEl.className = "text-center text-xs text-rose-400 bg-rose-950/40 p-2 rounded mb-4 border border-rose-800/50";
-        return;
-      }
+      if (typeof firebase === 'undefined') return;
 
       try {
-        if (!firebase.apps.length) {
-          firebase.initializeApp(firebaseConfig);
-        }
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         db = firebase.database();
-
         statusEl.innerText = "GitHub Pages Connected to Firebase!";
         statusEl.className = "text-center text-xs text-emerald-400 bg-emerald-950/40 p-2 rounded mb-4 border border-emerald-800/50";
       } catch (err) {
-        statusEl.innerText = "Firebase Config Error: " + err.message;
-        statusEl.className = "text-center text-xs text-rose-400 bg-rose-950/40 p-2 rounded mb-4 border border-rose-800/50";
+        statusEl.innerText = "Config Error: " + err.message;
         return;
       }
 
       document.getElementById('btn-create').onclick = handleCreateRoom;
       document.getElementById('btn-join').onclick = handleJoinRoom;
+      document.getElementById('btn-start').onclick = handleStartGame;
+      document.getElementById('btn-bid').onclick = handlePlaceBid;
+      document.getElementById('btn-liar').onclick = handleCallLiar;
     });
 
     function handleCreateRoom() {
       myName = document.getElementById('playerName').value.trim();
-      if (!myName) return alert("Please enter your name first!");
+      if (!myName) return alert("Please enter your name!");
 
       currentRoomId = makeCode();
       isHost = true;
-
-      // Switch UI on client side immediately
       enterRoomUI();
 
-      // Async write to Firebase
-      const roomRef = db.ref(`rooms/${currentRoomId}`);
-      roomRef.set({
+      db.ref(`rooms/${currentRoomId}`).set({
         hostId: myPlayerId,
         state: 'lobby',
+        turn: myPlayerId,
+        currentBid: null,
         players: {
-          [myPlayerId]: { name: myName, isReady: true, dice: [] }
-        }
-      }, (error) => {
-        if (error) {
-          alert("Firebase Database Write Rejected: " + error.message + "\nCheck Realtime Database Rules in Firebase Console.");
+          [myPlayerId]: { name: myName, dice: [] }
         }
       });
     }
@@ -147,20 +173,14 @@
       myName = document.getElementById('playerName').value.trim();
       currentRoomId = document.getElementById('roomIdInput').value.trim().toUpperCase();
 
-      if (!myName) return alert("Please enter your name!");
-      if (!currentRoomId) return alert("Please enter a room code!");
+      if (!myName || !currentRoomId) return alert("Enter name & room code!");
 
       isHost = false;
       enterRoomUI();
 
       db.ref(`rooms/${currentRoomId}/players/${myPlayerId}`).set({
         name: myName,
-        isReady: false,
         dice: []
-      }, (error) => {
-        if (error) {
-          alert("Firebase Database Write Rejected: " + error.message);
-        }
       });
     }
 
@@ -170,15 +190,13 @@
       document.getElementById('disp-room').innerText = currentRoomId;
       document.getElementById('disp-role').innerText = isHost ? "Host 👑" : "Player";
 
-      renderLocalPlayer();
-
-      // Disconnect listener for cleanup
       db.ref(`rooms/${currentRoomId}/players/${myPlayerId}`).onDisconnect().remove();
 
-      // Sync realtime changes
+      // Realtime Game Listener
       db.ref(`rooms/${currentRoomId}`).on('value', (snapshot) => {
         const data = snapshot.val();
         if (!data) return;
+        currentRoomData = data;
 
         const players = data.players || {};
         const pContainer = document.getElementById('players-list');
@@ -189,29 +207,106 @@
           pContainer.innerHTML += `
             <div class="bg-slate-800 p-2.5 rounded-lg border border-slate-700 flex justify-between items-center text-xs">
               <span class="font-bold ${id === myPlayerId ? 'text-amber-400' : 'text-slate-200'}">${p.name} ${id === data.hostId ? '👑' : ''}</span>
-              <span class="${p.isReady ? 'text-emerald-400' : 'text-rose-400'} font-bold">${p.isReady ? 'READY' : 'NOT READY'}</span>
+              <span class="text-xs text-slate-400">${data.state === 'playing' ? '🎲 In Game' : 'In Lobby'}</span>
             </div>
           `;
         });
 
-        if (isHost) {
+        // Host controls
+        if (isHost && data.state === 'lobby') {
           document.getElementById('host-controls').classList.remove('hidden');
-          document.getElementById('player-controls').classList.add('hidden');
         } else {
           document.getElementById('host-controls').classList.add('hidden');
-          document.getElementById('player-controls').classList.remove('hidden');
+        }
+
+        // Handle Game State transition
+        if (data.state === 'playing') {
+          document.getElementById('playing-field').classList.remove('hidden');
+          
+          // Display current user's dice
+          const myData = players[myPlayerId];
+          if (myData && myData.dice) {
+            document.getElementById('my-dice').innerText = myData.dice.join('  ');
+          }
+
+          // Bid info
+          if (data.currentBid) {
+            document.getElementById('disp-bid').innerText = `${data.currentBid.qty} × [ ${data.currentBid.face}s ] (by ${players[data.currentBid.by]?.name || 'Player'})`;
+          } else {
+            document.getElementById('disp-bid').innerText = "No bids yet";
+          }
+
+          // Turn info
+          const activePlayerName = players[data.turn]?.name || "Unknown";
+          const isMyTurn = data.turn === myPlayerId;
+          document.getElementById('turn-indicator').innerText = isMyTurn ? "👉 IT'S YOUR TURN!" : `Waiting for ${activePlayerName}...`;
+
+          // Disable/Enable inputs based on turn
+          document.getElementById('turn-actions').style.opacity = isMyTurn ? "1" : "0.4";
+          document.getElementById('btn-bid').disabled = !isMyTurn;
+          document.getElementById('btn-liar').disabled = !isMyTurn || !data.currentBid;
         }
       });
     }
 
-    function renderLocalPlayer() {
-      const pContainer = document.getElementById('players-list');
-      pContainer.innerHTML = `
-        <div class="bg-slate-800 p-2.5 rounded-lg border border-slate-700 flex justify-between items-center text-xs">
-          <span class="font-bold text-amber-400">${myName} ${isHost ? '👑' : ''}</span>
-          <span class="text-emerald-400 font-bold">READY</span>
-        </div>
-      `;
+    // HOST STARTS THE GAME
+    function handleStartGame() {
+      if (!currentRoomData) return;
+
+      const playerIds = Object.keys(currentRoomData.players);
+      const updates = {};
+
+      playerIds.forEach(id => {
+        updates[`rooms/${currentRoomId}/players/${id}/dice`] = rollDice();
+      });
+
+      updates[`rooms/${currentRoomId}/state`] = 'playing';
+      updates[`rooms/${currentRoomId}/turn`] = playerIds[0];
+      updates[`rooms/${currentRoomId}/currentBid`] = null;
+
+      db.ref().update(updates);
+    }
+
+    // PLACE A BID
+    function handlePlaceBid() {
+      const qty = parseInt(document.getElementById('bid-qty').value);
+      const face = parseInt(document.getElementById('bid-face').value);
+
+      const playerIds = Object.keys(currentRoomData.players);
+      const currentIndex = playerIds.indexOf(myPlayerId);
+      const nextPlayerId = playerIds[(currentIndex + 1) % playerIds.length];
+
+      db.ref(`rooms/${currentRoomId}`).update({
+        currentBid: { qty, face, by: myPlayerId },
+        turn: nextPlayerId
+      });
+    }
+
+    // CALL LIAR
+    function handleCallLiar() {
+      const bid = currentRoomData.currentBid;
+      if (!bid) return;
+
+      let totalMatching = 0;
+      const players = currentRoomData.players;
+
+      Object.keys(players).forEach(id => {
+        const dice = players[id].dice || [];
+        dice.forEach(d => {
+          if (d === bid.face || d === 1) totalMatching++; // 1s are wild
+        });
+      });
+
+      const bidderName = players[bid.by]?.name;
+      const success = totalMatching < bid.qty;
+
+      alert(`LIAR CALLED!\n\nBid was: ${bid.qty} × [${bid.face}s]\nActual matching dice on table: ${totalMatching}\n\nResult: ${success ? bidderName + " was LYING!" : bidderName + " was TELLING THE TRUTH!"}`);
+
+      // Reset back to lobby for next round
+      db.ref(`rooms/${currentRoomId}`).update({
+        state: 'lobby',
+        currentBid: null
+      });
     }
   </script>
 </body>
