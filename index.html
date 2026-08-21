@@ -245,26 +245,33 @@
           document.getElementById('turn-actions').style.opacity = isMyTurn ? "1" : "0.4";
           document.getElementById('btn-bid').disabled = !isMyTurn;
           document.getElementById('btn-liar').disabled = !isMyTurn || !data.currentBid;
+        } else {
+          document.getElementById('playing-field').classList.add('hidden');
         }
       });
     }
 
-    // HOST STARTS THE GAME
+    // FIXED: HOST STARTS THE GAME WITHOUT WIPING PLAYER NAMES
     function handleStartGame() {
-      if (!currentRoomData) return;
+      if (!currentRoomData || !currentRoomData.players) return;
 
       const playerIds = Object.keys(currentRoomData.players);
-      const updates = {};
+      if (playerIds.length === 0) return;
 
+      const updatedPlayers = {};
       playerIds.forEach(id => {
-        updates[`rooms/${currentRoomId}/players/${id}/dice`] = rollDice();
+        updatedPlayers[id] = {
+          ...currentRoomData.players[id],
+          dice: rollDice()
+        };
       });
 
-      updates[`rooms/${currentRoomId}/state`] = 'playing';
-      updates[`rooms/${currentRoomId}/turn`] = playerIds[0];
-      updates[`rooms/${currentRoomId}/currentBid`] = null;
-
-      db.ref().update(updates);
+      db.ref(`rooms/${currentRoomId}`).update({
+        state: 'playing',
+        turn: playerIds[0],
+        currentBid: null,
+        players: updatedPlayers
+      }).catch(err => alert("Start Game Failed: " + err.message));
     }
 
     // PLACE A BID
@@ -293,11 +300,11 @@
       Object.keys(players).forEach(id => {
         const dice = players[id].dice || [];
         dice.forEach(d => {
-          if (d === bid.face || d === 1) totalMatching++; // 1s are wild
+          if (d === bid.face || d === 1) totalMatching++; // 1s wild
         });
       });
 
-      const bidderName = players[bid.by]?.name;
+      const bidderName = players[bid.by]?.name || "Player";
       const success = totalMatching < bid.qty;
 
       alert(`LIAR CALLED!\n\nBid was: ${bid.qty} × [${bid.face}s]\nActual matching dice on table: ${totalMatching}\n\nResult: ${success ? bidderName + " was LYING!" : bidderName + " was TELLING THE TRUTH!"}`);
