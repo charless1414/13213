@@ -169,18 +169,29 @@
 
     function handleCreateRoom() {
       myName = document.getElementById('playerName').value.trim();
-      if (!myName) return alert("Please enter your name!");
-
       const createBtn = document.getElementById('btn-create');
       createBtn.disabled = true;
       createBtn.innerText = "Creating...";
 
+      if (!myName) {
+        alert("Please enter your name!");
+        createBtn.disabled = false;
+        createBtn.innerText = "➕ Create New Room";
+        return;
+      }
+
+      if (!db) {
+        alert('Not connected to Firebase.');
+        createBtn.disabled = false;
+        createBtn.innerText = "➕ Create New Room";
+        return;
+      }
+
       detachCurrentRoomListener();
 
-      currentRoomId = makeCode();
       isHost = true;
 
-      const initialData = {
+      const initialDataTemplate = () => ({
         hostId: myPlayerId,
         state: 'lobby',
         turn: myPlayerId,
@@ -189,18 +200,41 @@
         players: {
           [myPlayerId]: { name: myName, dice: [] }
         }
-      };
-
-      db.ref(`rooms/${currentRoomId}`).set(initialData, (err) => {
-        createBtn.disabled = false;
-        createBtn.innerText = "➕ Create New Room";
-
-        if (err) {
-          alert("Database Write Error: " + err.message);
-        } else {
-          enterRoomUI();
-        }
       });
+
+      // Try to create a unique 6-char room code using a transaction to avoid collisions
+      function tryCreate(attemptsLeft) {
+        const code = makeCode();
+        const roomRef = db.ref(`rooms/${code}`);
+        roomRef.transaction(room => {
+          if (room) return; // already exists -> abort
+          return initialDataTemplate();
+        }, (err, committed, snapshot) => {
+          if (err) {
+            alert('Database Error: ' + err.message);
+            createBtn.disabled = false;
+            createBtn.innerText = "➕ Create New Room";
+            return;
+          }
+
+          if (!committed) {
+            // collision, try again (limited attempts)
+            if (attemptsLeft > 0) return tryCreate(attemptsLeft - 1);
+            alert('Unable to create room after multiple attempts. Please try again.');
+            createBtn.disabled = false;
+            createBtn.innerText = "➕ Create New Room";
+            return;
+          }
+
+          // success
+          currentRoomId = code;
+          enterRoomUI();
+          createBtn.disabled = false;
+          createBtn.innerText = "➕ Create New Room";
+        });
+      }
+
+      tryCreate(3);
     }
 
     function handleJoinRoom() {
@@ -401,10 +435,6 @@
         if (!room) return;
         const bid = room.currentBid;
         if (!bid) return; // nothing to call
-        if (room.turn !== myPlayerId && bid.by === myPlayerId) {
-          // only allow calling liar when it's your turn OR allow any player to call? Keep it restricted: require it's caller's turn.
-          // We'll allow only the current turn to call liar for consistency with original logic.
-        }
 
         // Count matching dice (ones are wild)
         let totalMatching = 0;
@@ -427,12 +457,10 @@
         // Reset to lobby for next round; keep players (so dice are revealed via lastRound)
         room.state = 'lobby';
         room.currentBid = null;
-        // Optionally, clear dice or keep them until host starts next game
         return room;
       }, (err, committed, snapshot) => {
         if (err) return alert('Call Liar failed: ' + err.message);
         if (!committed) return alert('Could not resolve liar (race condition).');
-        // show result panel is handled by the value listener (enterRoomUI)
       });
     }
   </script>
