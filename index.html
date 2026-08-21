@@ -114,7 +114,6 @@
     };
 
     let db;
-    // Persist player ID in localStorage so refreshing doesn't duplicate players
     let myPlayerId = localStorage.getItem('dice_pid') || ('p_' + Math.random().toString(36).substr(2, 8));
     localStorage.setItem('dice_pid', myPlayerId);
 
@@ -130,6 +129,13 @@
 
     function rollDice() {
       return Array.from({length: 5}, () => Math.floor(Math.random() * 6) + 1);
+    }
+
+    // Clean active listener to prevent button freeze
+    function detachCurrentRoomListener() {
+      if (currentRoomId) {
+        db.ref(`rooms/${currentRoomId}`).off();
+      }
     }
 
     window.addEventListener('load', () => {
@@ -157,9 +163,16 @@
       myName = document.getElementById('playerName').value.trim();
       if (!myName) return alert("Please enter your name!");
 
+      // Disable button while processing to avoid multiple clicks
+      const createBtn = document.getElementById('btn-create');
+      createBtn.disabled = true;
+      createBtn.innerText = "Creating...";
+
+      detachCurrentRoomListener();
+
       currentRoomId = makeCode();
       isHost = true;
-      
+
       const initialData = {
         hostId: myPlayerId,
         state: 'lobby',
@@ -171,8 +184,14 @@
       };
 
       db.ref(`rooms/${currentRoomId}`).set(initialData, (err) => {
-        if (err) alert("Database Write Error: " + err.message);
-        else enterRoomUI();
+        createBtn.disabled = false;
+        createBtn.innerText = "➕ Create New Room";
+
+        if (err) {
+          alert("Database Write Error: " + err.message);
+        } else {
+          enterRoomUI();
+        }
       });
     }
 
@@ -182,11 +201,17 @@
 
       if (!myName || !currentRoomId) return alert("Enter name & room code!");
 
+      const joinBtn = document.getElementById('btn-join');
+      joinBtn.disabled = true;
+      joinBtn.innerText = "Joining...";
+
+      detachCurrentRoomListener();
       isHost = false;
 
-      // Ensure room exists first before joining
       db.ref(`rooms/${currentRoomId}`).once('value', (snapshot) => {
         if (!snapshot.exists()) {
+          joinBtn.disabled = false;
+          joinBtn.innerText = "🚀 Join Room";
           return alert("Room code not found! Make sure host created it.");
         }
 
@@ -194,6 +219,9 @@
           name: myName,
           dice: []
         }, (err) => {
+          joinBtn.disabled = false;
+          joinBtn.innerText = "🚀 Join Room";
+
           if (err) alert("Join Failed: " + err.message);
           else enterRoomUI();
         });
@@ -206,10 +234,8 @@
       document.getElementById('disp-room').innerText = currentRoomId;
       document.getElementById('disp-role').innerText = isHost ? "Host 👑" : "Player";
 
-      // On disconnect, remove player
       db.ref(`rooms/${currentRoomId}/players/${myPlayerId}`).onDisconnect().remove();
 
-      // Listen for REALTIME database changes for all players
       db.ref(`rooms/${currentRoomId}`).on('value', (snapshot) => {
         const data = snapshot.val();
         if (!data) return;
@@ -220,7 +246,6 @@
         
         document.getElementById('player-count').innerText = `(${playerKeys.length})`;
 
-        // Render player list
         const pContainer = document.getElementById('players-list');
         pContainer.innerHTML = '';
 
@@ -236,14 +261,12 @@
           `;
         });
 
-        // Toggle host button
         if (isHost && data.state === 'lobby') {
           document.getElementById('host-controls').classList.remove('hidden');
         } else {
           document.getElementById('host-controls').classList.add('hidden');
         }
 
-        // Playing State UI
         if (data.state === 'playing') {
           document.getElementById('playing-field').classList.remove('hidden');
 
