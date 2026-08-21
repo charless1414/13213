@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Liar's Dice Online</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Firebase Compatibility SDKs -->
+  <!-- Firebase Compat SDKs -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 </head>
@@ -14,39 +14,37 @@
   <div class="max-w-md w-full bg-slate-800 rounded-2xl p-6 shadow-2xl border border-slate-700">
     <h1 class="text-3xl font-extrabold text-amber-400 text-center mb-6">🎲 Liar's Dice</h1>
 
-    <!-- Connection Status Banner -->
+    <!-- Connection Banner -->
     <div id="debug-status" class="text-center text-xs text-amber-300 bg-amber-950/40 p-2 rounded mb-4 border border-amber-800/50">
-      Connecting to Firebase...
+      Initializing...
     </div>
 
-    <!-- LOBBY ZONE -->
+    <!-- LOBBY SCREEN -->
     <div id="lobby-zone" class="space-y-4">
       <div>
         <label class="text-sm font-semibold text-slate-400">Your Name</label>
         <input type="text" id="playerName" placeholder="e.g. Alex" class="w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg p-3 text-amber-400 font-bold focus:outline-none">
       </div>
       
-      <!-- Option 1: Create New Room (Auto-code) -->
       <button id="btn-create" type="button" class="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold py-3 rounded-lg shadow transition">
         ➕ Create New Room
       </button>
 
       <div class="relative flex py-2 items-center">
         <div class="flex-grow border-t border-slate-700"></div>
-        <span class="flex-shrink mx-4 text-xs text-slate-500 font-bold uppercase">Or Join Existing</span>
+        <span class="flex-shrink mx-4 text-xs text-slate-500 font-bold uppercase">Or Join Room</span>
         <div class="flex-grow border-t border-slate-700"></div>
       </div>
 
-      <!-- Option 2: Join Existing Room -->
       <div class="space-y-2">
-        <input type="text" id="roomIdInput" placeholder="Enter Room Code (e.g. A8K2P9)" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white font-bold focus:outline-none uppercase tracking-widest text-center">
+        <input type="text" id="roomIdInput" placeholder="Enter 6-Digit Code" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white font-bold focus:outline-none uppercase tracking-widest text-center">
         <button id="btn-join" type="button" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-3 rounded-lg shadow transition">
           🚀 Join Room
         </button>
       </div>
     </div>
 
-    <!-- GAME ROOM ZONE -->
+    <!-- ROOM SCREEN -->
     <div id="game-zone" class="hidden space-y-4">
       <div class="bg-slate-900 p-4 rounded-xl border border-slate-700 text-center space-y-1">
         <div class="text-xs text-slate-400 uppercase font-semibold">Room Code</div>
@@ -69,7 +67,7 @@
   </div>
 
   <script>
-    // ⚠️ REPLACE WITH YOUR REAL FIREBASE KEYS
+    // ⚠️ REPLACE WITH YOUR FIREBASE CONFIG
     const firebaseConfig = {
       apiKey: "YOUR_API_KEY",
       authDomain: "YOUR_PROJECT.firebaseapp.com",
@@ -84,48 +82,51 @@
     let myPlayerId = 'p_' + Math.random().toString(36).substr(2, 8);
     let myName = '', currentRoomId = '', isHost = false;
 
-    // Generate random 6-character uppercase room code
-    function generateRoomCode() {
-      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Excludes confusing characters like 0, O, 1, I
-      let result = '';
+    // Fast local random string generator
+    function makeCode() {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let code = '';
       for (let i = 0; i < 6; i++) {
-        result += chars.charAt(Math.floor(Math.random() * chars.length));
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
       }
-      return result;
+      return code;
     }
 
-    window.addEventListener('DOMContentLoaded', () => {
+    window.addEventListener('load', () => {
       const statusEl = document.getElementById('debug-status');
+
+      if (typeof firebase === 'undefined') {
+        statusEl.innerText = "Error: Firebase CDN blocked or failed to load!";
+        statusEl.className = "text-center text-xs text-rose-400 bg-rose-950/40 p-2 rounded mb-4 border border-rose-800/50";
+        return;
+      }
 
       try {
         if (!firebase.apps.length) {
           firebase.initializeApp(firebaseConfig);
         }
         db = firebase.database();
-        statusEl.innerText = "Connected to Firebase SDK! Ready.";
+        statusEl.innerText = "Firebase Ready!";
         statusEl.className = "text-center text-xs text-emerald-400 bg-emerald-950/40 p-2 rounded mb-4 border border-emerald-800/50";
-      } catch (e) {
-        statusEl.innerText = "Firebase Init Failed: " + e.message;
+      } catch (err) {
+        statusEl.innerText = "Config Error: " + err.message;
         statusEl.className = "text-center text-xs text-rose-400 bg-rose-950/40 p-2 rounded mb-4 border border-rose-800/50";
         return;
       }
 
-      document.getElementById('btn-create').addEventListener('click', createRoom);
-      document.getElementById('btn-join').addEventListener('click', joinRoom);
+      document.getElementById('btn-create').onclick = createRoomDirect;
+      document.getElementById('btn-join').onclick = joinRoomDirect;
     });
 
-    function createRoom() {
+    // 1. DIRECT WRITE (No asynchronous pre-check locking)
+    function createRoomDirect() {
       myName = document.getElementById('playerName').value.trim();
-      if (!myName) {
-        alert("Please enter your name first.");
-        return;
-      }
+      if (!myName) return alert("Please enter your name first!");
 
-      currentRoomId = generateRoomCode();
-      const roomRef = db.ref(`rooms/${currentRoomId}`);
-
+      currentRoomId = makeCode();
       isHost = true;
-      const initialRoom = {
+
+      const roomData = {
         hostId: myPlayerId,
         state: 'lobby',
         players: {
@@ -133,41 +134,35 @@
         }
       };
 
-      roomRef.set(initialRoom, (error) => {
-        if (error) {
-          alert("Database Error: " + error.message);
-        } else {
+      // Direct write bypassing snapshot reads
+      db.ref(`rooms/${currentRoomId}`).set(roomData)
+        .then(() => {
           enterRoomUI();
-        }
-      });
+        })
+        .catch((err) => {
+          alert("Create Room Failed: " + err.message);
+        });
     }
 
-    function joinRoom() {
+    // 2. DIRECT JOIN
+    function joinRoomDirect() {
       myName = document.getElementById('playerName').value.trim();
       currentRoomId = document.getElementById('roomIdInput').value.trim().toUpperCase();
 
-      if (!myName) return alert("Please enter your name.");
-      if (!currentRoomId) return alert("Please enter a room code to join.");
+      if (!myName) return alert("Please enter your name!");
+      if (!currentRoomId) return alert("Please enter a room code!");
 
-      const roomRef = db.ref(`rooms/${currentRoomId}`);
-      roomRef.once('value', (snapshot) => {
-        if (!snapshot.exists()) {
-          alert("Room code not found! Please double check the code.");
-          return;
-        }
-
+      db.ref(`rooms/${currentRoomId}/players/${myPlayerId}`).set({
+        name: myName,
+        isReady: false,
+        dice: []
+      })
+      .then(() => {
         isHost = false;
-        db.ref(`rooms/${currentRoomId}/players/${myPlayerId}`).set({
-          name: myName,
-          isReady: false,
-          dice: []
-        }, (error) => {
-          if (error) {
-            alert("Database Error: " + error.message);
-          } else {
-            enterRoomUI();
-          }
-        });
+        enterRoomUI();
+      })
+      .catch((err) => {
+        alert("Join Failed: " + err.message);
       });
     }
 
@@ -177,10 +172,10 @@
       document.getElementById('disp-room').innerText = currentRoomId;
       document.getElementById('disp-role').innerText = isHost ? "Host 👑" : "Player";
 
-      // Disconnect cleanup
+      // Clean up player on tab close
       db.ref(`rooms/${currentRoomId}/players/${myPlayerId}`).onDisconnect().remove();
 
-      // Listen for room updates
+      // Realtime listener
       db.ref(`rooms/${currentRoomId}`).on('value', (snapshot) => {
         const data = snapshot.val();
         if (!data) return;
