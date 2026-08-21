@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Liar's Dice Online</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Firebase Compat SDKs -->
+  <!-- Firebase Compatibility SDKs -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 </head>
@@ -14,12 +14,12 @@
   <div class="max-w-md w-full bg-slate-800 rounded-2xl p-6 shadow-2xl border border-slate-700">
     <h1 class="text-3xl font-extrabold text-amber-400 text-center mb-6">🎲 Liar's Dice</h1>
 
-    <!-- Connection Banner -->
+    <!-- Status Banner -->
     <div id="debug-status" class="text-center text-xs text-amber-300 bg-amber-950/40 p-2 rounded mb-4 border border-amber-800/50">
-      Initializing...
+      Initializing SDK...
     </div>
 
-    <!-- LOBBY SCREEN -->
+    <!-- LOBBY ZONE -->
     <div id="lobby-zone" class="space-y-4">
       <div>
         <label class="text-sm font-semibold text-slate-400">Your Name</label>
@@ -32,7 +32,7 @@
 
       <div class="relative flex py-2 items-center">
         <div class="flex-grow border-t border-slate-700"></div>
-        <span class="flex-shrink mx-4 text-xs text-slate-500 font-bold uppercase">Or Join Room</span>
+        <span class="flex-shrink mx-4 text-xs text-slate-500 font-bold uppercase">Or Join Existing</span>
         <div class="flex-grow border-t border-slate-700"></div>
       </div>
 
@@ -44,7 +44,7 @@
       </div>
     </div>
 
-    <!-- ROOM SCREEN -->
+    <!-- ROOM ZONE -->
     <div id="game-zone" class="hidden space-y-4">
       <div class="bg-slate-900 p-4 rounded-xl border border-slate-700 text-center space-y-1">
         <div class="text-xs text-slate-400 uppercase font-semibold">Room Code</div>
@@ -67,11 +67,11 @@
   </div>
 
   <script>
-    // ⚠️ REPLACE WITH YOUR FIREBASE CONFIG
+    // ⚠️ REPLACE VALUES WITH YOUR FIREBASE PROJECT CONFIG
     const firebaseConfig = {
       apiKey: "YOUR_API_KEY",
       authDomain: "YOUR_PROJECT.firebaseapp.com",
-      databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+      databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com", // MUST include exact URL
       projectId: "YOUR_PROJECT",
       storageBucket: "YOUR_PROJECT.appspot.com",
       messagingSenderId: "123456789",
@@ -82,7 +82,6 @@
     let myPlayerId = 'p_' + Math.random().toString(36).substr(2, 8);
     let myName = '', currentRoomId = '', isHost = false;
 
-    // Fast local random string generator
     function makeCode() {
       const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
       let code = '';
@@ -96,7 +95,7 @@
       const statusEl = document.getElementById('debug-status');
 
       if (typeof firebase === 'undefined') {
-        statusEl.innerText = "Error: Firebase CDN blocked or failed to load!";
+        statusEl.innerText = "Error: Firebase CDN blocked on GitHub Pages!";
         statusEl.className = "text-center text-xs text-rose-400 bg-rose-950/40 p-2 rounded mb-4 border border-rose-800/50";
         return;
       }
@@ -106,63 +105,67 @@
           firebase.initializeApp(firebaseConfig);
         }
         db = firebase.database();
-        statusEl.innerText = "Firebase Ready!";
+        
+        // Force HTTP Long-Polling if WebSockets hang on GitHub Pages
+        if (db.INTERNAL && db.INTERNAL.forceWebSockets) {
+          firebase.database.INTERNAL.forceLongPolling();
+        }
+
+        statusEl.innerText = "GitHub Pages Connected to Firebase!";
         statusEl.className = "text-center text-xs text-emerald-400 bg-emerald-950/40 p-2 rounded mb-4 border border-emerald-800/50";
       } catch (err) {
-        statusEl.innerText = "Config Error: " + err.message;
+        statusEl.innerText = "Firebase Config Error: " + err.message;
         statusEl.className = "text-center text-xs text-rose-400 bg-rose-950/40 p-2 rounded mb-4 border border-rose-800/50";
         return;
       }
 
-      document.getElementById('btn-create').onclick = createRoomDirect;
-      document.getElementById('btn-join').onclick = joinRoomDirect;
+      document.getElementById('btn-create').onclick = handleCreateRoom;
+      document.getElementById('btn-join').onclick = handleJoinRoom;
     });
 
-    // 1. DIRECT WRITE (No asynchronous pre-check locking)
-    function createRoomDirect() {
+    function handleCreateRoom() {
       myName = document.getElementById('playerName').value.trim();
       if (!myName) return alert("Please enter your name first!");
 
       currentRoomId = makeCode();
       isHost = true;
 
-      const roomData = {
+      // 1. Immediately switch UI on client side (Prevents local interface freeze)
+      enterRoomUI();
+
+      // 2. Async write data to Firebase with explicit failure callback
+      const roomRef = db.ref(`rooms/${currentRoomId}`);
+      roomRef.set({
         hostId: myPlayerId,
         state: 'lobby',
         players: {
           [myPlayerId]: { name: myName, isReady: true, dice: [] }
         }
-      };
-
-      // Direct write bypassing snapshot reads
-      db.ref(`rooms/${currentRoomId}`).set(roomData)
-        .then(() => {
-          enterRoomUI();
-        })
-        .catch((err) => {
-          alert("Create Room Failed: " + err.message);
-        });
+      }, (error) => {
+        if (error) {
+          alert("Firebase Database Write Rejected: " + error.message + "\nCheck Realtime Database Rules in Firebase Console.");
+        }
+      });
     }
 
-    // 2. DIRECT JOIN
-    function joinRoomDirect() {
+    function handleJoinRoom() {
       myName = document.getElementById('playerName').value.trim();
       currentRoomId = document.getElementById('roomIdInput').value.trim().toUpperCase();
 
       if (!myName) return alert("Please enter your name!");
       if (!currentRoomId) return alert("Please enter a room code!");
 
+      isHost = false;
+      enterRoomUI();
+
       db.ref(`rooms/${currentRoomId}/players/${myPlayerId}`).set({
         name: myName,
         isReady: false,
         dice: []
-      })
-      .then(() => {
-        isHost = false;
-        enterRoomUI();
-      })
-      .catch((err) => {
-        alert("Join Failed: " + err.message);
+      }, (error) => {
+        if (error) {
+          alert("Firebase Database Write Rejected: " + error.message);
+        }
       });
     }
 
@@ -172,10 +175,13 @@
       document.getElementById('disp-room').innerText = currentRoomId;
       document.getElementById('disp-role').innerText = isHost ? "Host 👑" : "Player";
 
-      // Clean up player on tab close
+      // Instantly render current player locally
+      renderLocalPlayer();
+
+      // Disconnect listener for cleanup
       db.ref(`rooms/${currentRoomId}/players/${myPlayerId}`).onDisconnect().remove();
 
-      // Realtime listener
+      // Sync realtime changes
       db.ref(`rooms/${currentRoomId}`).on('value', (snapshot) => {
         const data = snapshot.val();
         if (!data) return;
@@ -202,6 +208,16 @@
           document.getElementById('player-controls').classList.remove('hidden');
         }
       });
+    }
+
+    function renderLocalPlayer() {
+      const pContainer = document.getElementById('players-list');
+      pContainer.innerHTML = `
+        <div class="bg-slate-800 p-2.5 rounded-lg border border-slate-700 flex justify-between items-center text-xs">
+          <span class="font-bold text-amber-400">${myName} ${isHost ? '👑' : ''}</span>
+          <span class="text-emerald-400 font-bold">READY</span>
+        </div>
+      `;
     }
   </script>
 </body>
