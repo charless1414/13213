@@ -1,230 +1,235 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="UTF-8" />
-  <title>線上大話骰 Liar's Dice</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>線上多人大話骰 Liar's Dice</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    /* Small roll animation */
-    .dice-roll {
-      transform: translateY(-6px) rotate(-8deg);
-      transition: transform 120ms ease;
-    }
-    .dice-final {
-      transform: none;
-      transition: transform 220ms ease;
-    }
-  </style>
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 </head>
-<body class="bg-slate-900 text-white min-h-screen flex flex-col items-center justify-center p-4">
-  <div class="max-w-md w-full bg-slate-800 rounded-xl p-6 shadow-2xl text-center border border-slate-700" role="application" aria-label="大話骰遊戲介面">
-    <h1 class="text-3xl font-bold text-amber-400 mb-6">🎲 線上大話骰</h1>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
 
-    <!-- 我的骰子 -->
-    <div class="bg-slate-700/50 p-4 rounded-lg mb-6 border border-slate-600">
-      <h2 class="text-sm font-semibold text-slate-400 mb-2">你的骰子</h2>
-      <div id="dice-container" class="flex justify-center gap-2 text-3xl font-bold" aria-live="polite" aria-atomic="true">
-        <!-- Dice elements inserted by JS -->
+  <div class="max-w-xl w-full bg-slate-800 rounded-2xl p-6 shadow-2xl border border-slate-700">
+    <h1 class="text-3xl font-extrabold text-amber-400 text-center mb-6">🎲 線上多人大話骰</h1>
+
+    <!-- 1. 登入/大廳區 -->
+    <div id="lobby-zone" class="space-y-4">
+      <div>
+        <label class="text-sm font-semibold text-slate-400">玩家暱稱</label>
+        <input type="text" id="playerName" placeholder="例如: 小明" class="w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg p-3 text-amber-400 font-bold focus:outline-none focus:border-amber-400">
       </div>
-      <div class="mt-4 flex gap-3 justify-center items-center">
-        <button id="roll-btn" class="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold py-2 px-6 rounded-full transition-all" aria-controls="dice-container">
-          搖骰 (Roll)
-        </button>
-        <button id="randomize-seed" class="bg-slate-700 hover:bg-slate-600 text-white font-medium py-2 px-4 rounded-lg hidden" title="Debug">seed</button>
+      <div>
+        <label class="text-sm font-semibold text-slate-400">房間號碼</label>
+        <input type="text" id="roomId" placeholder="例如: 888" class="w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg p-3 text-white font-bold focus:outline-none focus:border-amber-400">
       </div>
+      <button onclick="joinRoom()" class="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold py-3 rounded-lg shadow-lg transition">加入 / 建立房間</button>
     </div>
 
-    <!-- 遊戲操作區 -->
-    <div class="space-y-4 w-full">
-      <div class="flex gap-2 justify-center items-center">
-        <label for="count" class="sr-only">骰子數量</label>
-        <input type="number" id="count" min="1" max="30" value="5" class="w-20 bg-slate-900 border border-slate-600 rounded p-2 text-center text-amber-400 font-bold" aria-label="骰子數量" />
-        <span>個</span>
-        <label for="point" class="sr-only">點數</label>
-        <select id="point" class="bg-slate-900 border border-slate-600 rounded p-2 text-amber-400 font-bold" aria-label="叫牌點數">
-          <option value="1">1 點</option>
-          <option value="2">2 點</option>
-          <option value="3">3 點</option>
-          <option value="4">4 點</option>
-          <option value="5">5 點</option>
-          <option value="6">6 點</option>
-        </select>
+    <!-- 2. 遊戲主畫面 (預設隱藏) -->
+    <div id="game-zone" class="hidden space-y-6">
+      
+      <!-- 頂部資訊列 -->
+      <div class="flex justify-between items-center bg-slate-900 p-3 rounded-lg border border-slate-700">
+        <div>房號: <span id="disp-room" class="font-bold text-amber-400">--</span></div>
+        <div>回合: <span id="disp-turn" class="font-bold text-emerald-400">等待開局...</span></div>
       </div>
 
-      <div class="flex gap-3 justify-center">
-        <button id="bid-btn" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-6 rounded-lg w-full">叫牌</button>
-        <button id="reveal-btn" class="bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-6 rounded-lg w-full">開！</button>
+      <!-- 桌面玩家區 (顯示所有人在場狀態) -->
+      <div>
+        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">房內玩家</h3>
+        <div id="players-list" class="grid grid-cols-2 gap-2"></div>
       </div>
 
-      <div id="current-bid" class="mt-3 text-slate-300 text-sm" aria-live="polite"></div>
-      <div id="result" class="mt-2 text-lg font-semibold"></div>
+      <!-- 當前叫牌訊息 -->
+      <div class="bg-amber-500/10 border border-amber-500/30 p-4 rounded-xl text-center">
+        <span class="text-xs text-amber-400/80 block uppercase font-bold">目前最新叫牌</span>
+        <div id="current-bid-display" class="text-2xl font-black text-amber-400 mt-1">無叫牌</div>
+      </div>
+
+      <!-- 玩家自己的暗骰區 -->
+      <div class="bg-slate-700/40 p-4 rounded-xl border border-slate-600/50 text-center">
+        <div class="text-xs text-slate-400 font-semibold mb-2">你的骰子 (僅自己可見)</div>
+        <div id="my-dice" class="flex justify-center gap-2 text-3xl font-extrabold my-2">----</div>
+        <button onclick="rollMyDice()" id="btn-roll" class="bg-slate-600 hover:bg-slate-500 text-white text-xs py-1 px-4 rounded-full mt-2 transition">重搖我的骰子</button>
+      </div>
+
+      <!-- 操作面板 (喊點數 / 吹) -->
+      <div class="space-y-3 bg-slate-900 p-4 rounded-xl border border-slate-700">
+        <div class="flex items-center justify-center gap-3">
+          <input type="number" id="bid-count" min="1" value="2" class="w-20 bg-slate-800 border border-slate-600 rounded-lg p-2 text-center text-amber-400 font-bold">
+          <span>個</span>
+          <select id="bid-point" class="bg-slate-800 border border-slate-600 rounded-lg p-2 text-amber-400 font-bold">
+            <option value="1">1 點 (飛/通用)</option>
+            <option value="2">2 點</option>
+            <option value="3">3 點</option>
+            <option value="4">4 點</option>
+            <option value="5">5 點</option>
+            <option value="6">6 點</option>
+          </select>
+        </div>
+        
+        <div class="grid grid-cols-2 gap-3">
+          <button onclick="makeBid()" id="btn-bid" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg transition">喊牌 (Bid)</button>
+          <button onclick="challenge()" id="btn-open" class="bg-rose-600 hover:bg-rose-500 text-white font-bold py-3 rounded-lg transition">開 / 抓吹牛！</button>
+        </div>
+      </div>
+
+      <!-- 遊戲動態 Log -->
+      <div id="game-log" class="bg-slate-950 p-3 rounded-lg h-28 overflow-y-auto text-xs text-slate-400 space-y-1 font-mono border border-slate-800"></div>
+
     </div>
   </div>
 
   <script>
-    // Utility: secure random int 0..(max-1) using crypto when available
-    function secureRandomInt(max) {
-      if (window.crypto && crypto.getRandomValues) {
-        // Generate a Uint32 and scale to [0, max)
-        const range = Math.floor(0xFFFFFFFF / max) * max;
-        let x;
-        do {
-          const arr = new Uint32Array(1);
-          crypto.getRandomValues(arr);
-          x = arr[0];
-        } while (x >= range);
-        return x % max;
-      } else {
-        return Math.floor(Math.random() * max);
-      }
-    }
+    // ⚠️ 請填入你的 Firebase 配置 (登入 Firebase 主機版點選新增 Web 專案即可取得)
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT.firebaseapp.com",
+      databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+      projectId: "YOUR_PROJECT",
+      storageBucket: "YOUR_PROJECT.appspot.com",
+      messagingSenderId: "123456789",
+      appId: "1:123456789:web:abcdef"
+    };
 
-    const diceContainer = document.getElementById('dice-container');
-    const rollBtn = document.getElementById('roll-btn');
-    const countInput = document.getElementById('count');
-    const pointSelect = document.getElementById('point');
-    const bidBtn = document.getElementById('bid-btn');
-    const revealBtn = document.getElementById('reveal-btn');
-    const currentBidEl = document.getElementById('current-bid');
-    const resultEl = document.getElementById('result');
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
 
+    let myPlayerId = 'p_' + Math.random().toString(36).substr(2, 9);
+    let myName = '';
+    let roomId = '';
+    let myDice = [];
     const diceIcons = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
-    let myDice = []; // holds current dice values [1..6]
-    let currentBid = null;
 
-    function renderDice(arr, animated = false) {
-      diceContainer.innerHTML = '';
-      arr.forEach((v, i) => {
-        const span = document.createElement('span');
-        span.className = 'bg-slate-800 p-2 rounded-lg border border-slate-600 text-amber-400 inline-flex items-center justify-center';
-        span.style.minWidth = '2.2rem';
-        span.style.minHeight = '2.2rem';
-        span.setAttribute('role', 'img');
-        span.setAttribute('aria-label', `骰子 ${i + 1}：${v} 點`);
-        span.textContent = diceIcons[v - 1];
-        if (animated) span.classList.add('dice-roll');
-        diceContainer.appendChild(span);
+    function joinRoom() {
+      myName = document.getElementById('playerName').value.trim();
+      roomId = document.getElementById('roomId').value.trim();
+      if (!myName || !roomId) return alert("請輸入暱稱與房號！");
+
+      document.getElementById('lobby-zone').classList.add('hidden');
+      document.getElementById('game-zone').classList.remove('hidden');
+      document.getElementById('disp-room').innerText = roomId;
+
+      // 1. 在 Firebase 建立玩家資料
+      rollMyDice(false);
+      db.ref(`rooms/${roomId}/players/${myPlayerId}`).set({
+        name: myName,
+        dice: myDice,
+        joinedAt: Date.now()
       });
+
+      // 玩家斷線自動移除
+      db.ref(`rooms/${roomId}/players/${myPlayerId}`).onDisconnect().remove();
+
+      // 2. 監聽房間所有狀態變化 (秒級同步的核心)
+      db.ref(`rooms/${roomId}`).on('value', (snapshot) => {
+        const data = snapshot.val();
+        if (!data) return;
+
+        updateRoomUI(data);
+      });
+
+      addLog(`玩家 [${myName}] 加入了房間。`);
     }
 
-    function animateRoll(finalValues, duration = 700) {
-      // Show rapid changing icons for duration, then show final
-      const start = Date.now();
-      const interimCount = Math.max(10, finalValues.length);
-      let animId = null;
-      function tick() {
-        const elapsed = Date.now() - start;
-        if (elapsed >= duration) {
-          renderDice(finalValues, false);
-          return;
-        }
-        // set interim random faces
-        const temp = [];
-        for (let i = 0; i < finalValues.length; i++) {
-          temp.push(secureRandomInt(6) + 1);
-        }
-        renderDice(temp, true);
-        animId = requestAnimationFrame(tick);
+    function rollMyDice(updateDb = true) {
+      myDice = Array.from({length: 5}, () => Math.floor(Math.random() * 6) + 1);
+      document.getElementById('my-dice').innerHTML = myDice.map(d => 
+        `<span class="bg-slate-800 px-2 py-1 rounded border border-slate-600 text-amber-400">${diceIcons[d-1]}</span>`
+      ).join('');
+
+      if (updateDb && roomId) {
+        db.ref(`rooms/${roomId}/players/${myPlayerId}/dice`).set(myDice);
       }
-      tick();
     }
 
-    function rollDice() {
-      // ensure valid count
-      let count = parseInt(countInput.value, 10) || 5;
-      count = Math.max(1, Math.min(30, count));
-      countInput.value = count;
+    function updateRoomUI(data) {
+      const players = data.players || {};
+      const playerIds = Object.keys(players);
 
-      // disable UI while rolling
-      rollBtn.disabled = true;
-      bidBtn.disabled = true;
-      revealBtn.disabled = true;
-      resultEl.textContent = '';
-      currentBidEl.textContent = '';
+      // 更新玩家清單
+      const pContainer = document.getElementById('players-list');
+      pContainer.innerHTML = '';
+      playerIds.forEach(id => {
+        const p = players[id];
+        const isCurrentTurn = data.currentTurn === id;
+        pContainer.innerHTML += `
+          <div class="bg-slate-800 p-2 rounded border ${isCurrentTurn ? 'border-emerald-400 bg-emerald-950/20' : 'border-slate-700'} text-xs flex justify-between items-center">
+            <span class="font-bold ${id === myPlayerId ? 'text-amber-400' : 'text-slate-200'}">${p.name} ${id === myPlayerId ? '(你)' : ''}</span>
+            <span class="text-slate-500">${p.dice ? p.dice.length : 0} 骰</span>
+          </div>
+        `;
+      });
 
-      // generate dice
-      const values = [];
-      for (let i = 0; i < count; i++) {
-        const val = secureRandomInt(6) + 1; // 1..6
-        values.push(val);
-      }
-
-      // animate and then set final
-      animateRoll(values, 900);
-      setTimeout(() => {
-        myDice = values;
-        renderDice(myDice, false);
-        rollBtn.disabled = false;
-        bidBtn.disabled = false;
-        revealBtn.disabled = false;
-        // expose in console for debugging
-        console.log('rolled dice:', myDice);
-        // announce final state for screen readers (aria-live already set on container)
-      }, 920);
-      return myDice;
-    }
-
-    rollBtn.addEventListener('click', () => {
-      rollDice();
-    });
-
-    // Allow Enter on count field to trigger a roll
-    countInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        rollBtn.click();
-      }
-    });
-
-    // "叫牌" sets the current bid (client-side simple)
-    bidBtn.addEventListener('click', () => {
-      const count = Math.max(1, Math.min(30, parseInt(countInput.value, 10) || 1));
-      const point = parseInt(pointSelect.value, 10);
-      currentBid = { count, point };
-      currentBidEl.textContent = `當前叫牌：${count} 個 ${point} 點`;
-      resultEl.textContent = '';
-    });
-
-    // "開！" checks current player's dice against the bid (simple local check)
-    revealBtn.addEventListener('click', () => {
-      if (!currentBid) {
-        resultEl.textContent = '請先叫牌 (按「叫牌")';
-        resultEl.className = 'mt-2 text-lg font-semibold text-amber-300';
-        return;
-      }
-      if (!myDice || myDice.length === 0) {
-        resultEl.textContent = '請先搖骰 (按「搖骰")';
-        resultEl.className = 'mt-2 text-lg font-semibold text-amber-300';
-        return;
-      }
-      const matches = myDice.filter(v => v === currentBid.point).length;
-      const success = matches >= currentBid.count;
-      if (success) {
-        resultEl.textContent = `結果：有 ${matches} 個 ${currentBid.point} 點，叫牌成立！`;
-        resultEl.className = 'mt-2 text-lg font-semibold text-emerald-400';
+      // 更新當前叫牌
+      if (data.lastBid) {
+        document.getElementById('current-bid-display').innerText = `${data.lastBid.count} 個 ${data.lastBid.point} 點 (${data.lastBid.by})`;
       } else {
-        resultEl.textContent = `結果：只有 ${matches} 個 ${currentBid.point} 點，叫牌失敗！`;
-        resultEl.className = 'mt-2 text-lg font-semibold text-rose-400';
+        document.getElementById('current-bid-display').innerText = "無叫牌";
       }
-    });
 
-    // initial render with default dice
-    document.addEventListener('DOMContentLoaded', () => {
-      // ensure count input is in sync
-      if (!countInput.value) countInput.value = 5;
-      // initial placeholder dice
-      const initial = Array.from({ length: parseInt(countInput.value, 10) || 5 }, () => 0);
-      diceContainer.innerHTML = '';
-      initial.forEach(() => {
-        const span = document.createElement('span');
-        span.className = 'bg-slate-800 p-2 rounded-lg border border-slate-600 text-slate-500 inline-flex items-center justify-center';
-        span.style.minWidth = '2.2rem';
-        span.style.minHeight = '2.2rem';
-        span.textContent = '❓';
-        diceContainer.appendChild(span);
+      // 更新目前輪到誰
+      if (data.currentTurn) {
+        const turnName = players[data.currentTurn] ? players[data.currentTurn].name : '未知';
+        document.getElementById('disp-turn').innerText = (data.currentTurn === myPlayerId) ? "👉 輪到你了！" : `輪到 ${turnName}`;
+      }
+    }
+
+    function makeBid() {
+      const count = parseInt(document.getElementById('bid-count').value);
+      const point = parseInt(document.getElementById('bid-point').value);
+
+      db.ref(`rooms/${roomId}`).transaction((room) => {
+        if (!room) return room;
+        room.lastBid = { count, point, by: myName, playerId: myPlayerId };
+        
+        // 自動切換到下一個人
+        const pKeys = Object.keys(room.players || {});
+        let nextIdx = (pKeys.indexOf(myPlayerId) + 1) % pKeys.length;
+        room.currentTurn = pKeys[nextIdx];
+
+        return room;
       });
-    });
+
+      addLog(`[${myName}] 喊牌: ${count} 個 ${point} 點`);
+    }
+
+    function challenge() {
+      db.ref(`rooms/${roomId}`).once('value', (snapshot) => {
+        const data = snapshot.val();
+        if (!data || !data.lastBid) return alert("目前還沒有人喊牌！");
+
+        const targetPoint = data.lastBid.point;
+        let totalMatches = 0;
+        let showResults = [];
+
+        // 統計所有人骰子（1 點算飛骰/狂野點數）
+        Object.values(data.players || {}).forEach(p => {
+          let pMatches = 0;
+          (p.dice || []).forEach(d => {
+            if (d === targetPoint || d === 1) pMatches++;
+          });
+          totalMatches += pMatches;
+          showResults.push(`${p.name}: [${p.dice.join(',')}]`);
+        });
+
+        const win = totalMatches >= data.lastBid.count;
+        const msg = `🔥 開牌！喊牌為 ${data.lastBid.count} 個 ${targetPoint} 點。\n實際總數(含1點): ${totalMatches} 個！\n\n開牌結果:\n${showResults.join('\n')}\n\n${win ? '吹牛失敗，喊牌者勝！' : '吹牛成功，開牌者勝！'}`;
+        
+        alert(msg);
+
+        // 重置局面
+        db.ref(`rooms/${roomId}/lastBid`).remove();
+      });
+    }
+
+    function addLog(txt) {
+      const logBox = document.getElementById('game-log');
+      logBox.innerHTML += `<div>> ${txt}</div>`;
+      logBox.scrollTop = logBox.scrollHeight;
+    }
   </script>
 </body>
 </html>
