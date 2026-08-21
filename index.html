@@ -1,20 +1,25 @@
-<!DOCTYPE html>
-<html lang="zh-Hant">
+ <!DOCTYPE html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Liar's Dice Online</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Firebase SDKs -->
+  <!-- Firebase Compatibility Libraries -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 </head>
-<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
+<body class="bg-slate-900 text-slate-100 min-h-screen flex items-center justify-center p-4">
 
-  <div class="max-w-xl w-full bg-slate-800 rounded-2xl p-6 shadow-2xl border border-slate-700">
+  <div class="max-w-md w-full bg-slate-800 rounded-2xl p-6 shadow-2xl border border-slate-700">
     <h1 class="text-3xl font-extrabold text-amber-400 text-center mb-6">🎲 Liar's Dice</h1>
 
-    <!-- 1. LOBBY ZONE -->
+    <!-- Debug Banner to verify script readiness -->
+    <div id="debug-status" class="text-center text-xs text-amber-300 bg-amber-950/40 p-2 rounded mb-4 border border-amber-800/50">
+      Initializing connection...
+    </div>
+
+    <!-- LOBBY SCREEN -->
     <div id="lobby-zone" class="space-y-4">
       <div>
         <label class="text-sm font-semibold text-slate-400">Your Name</label>
@@ -26,75 +31,42 @@
       </div>
       
       <div class="grid grid-cols-2 gap-3 pt-2">
-        <button onclick="createRoom()" class="bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold py-3 rounded-lg shadow transition">Create Room</button>
-        <button onclick="joinRoom()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-3 rounded-lg shadow transition">Join Room</button>
+        <button id="btn-create" type="button" class="bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold py-3 rounded-lg shadow transition">Create Room</button>
+        <button id="btn-join" type="button" class="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-3 rounded-lg shadow transition">Join Room</button>
       </div>
     </div>
 
-    <!-- 2. GAME ZONE -->
-    <div id="game-zone" class="hidden space-y-6">
-      
-      <!-- Status Header -->
-      <div class="flex justify-between items-center bg-slate-900 p-3 rounded-lg border border-slate-700 text-sm">
+    <!-- GAME ROOM SCREEN -->
+    <div id="game-zone" class="hidden space-y-4">
+      <div class="bg-slate-900 p-3 rounded-lg border border-slate-700 text-sm flex justify-between">
         <div>Room: <span id="disp-room" class="font-bold text-amber-400">--</span></div>
         <div>Role: <span id="disp-role" class="font-bold text-indigo-400">--</span></div>
-        <div>Status: <span id="disp-status" class="font-bold text-emerald-400">Lobby</span></div>
       </div>
 
-      <!-- Player List -->
       <div class="bg-slate-900/50 p-4 rounded-xl border border-slate-700">
-        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Players in Room</h3>
+        <h3 class="text-xs font-semibold text-slate-400 uppercase mb-2">Players</h3>
         <div id="players-list" class="space-y-2"></div>
       </div>
 
-      <!-- Pre-Game Action Controls -->
-      <div id="pregame-controls" class="bg-slate-900 p-4 rounded-xl border border-slate-700 flex justify-center">
-        <button id="btn-start-game" onclick="startGame()" class="hidden w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-3 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Start Game</button>
-        <button id="btn-toggle-ready" onclick="toggleReady()" class="hidden w-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-3 rounded-lg">Toggle Ready</button>
+      <div id="host-controls" class="hidden">
+        <button id="btn-start" type="button" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-3 rounded-lg">Start Game</button>
+      </div>
+      <div id="player-controls" class="hidden">
+        <button id="btn-ready" type="button" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-3 rounded-lg">Ready Up</button>
       </div>
 
-      <!-- Active Game Controls -->
-      <div id="active-game-controls" class="hidden space-y-4">
-        
-        <div class="bg-amber-500/10 border border-amber-500/30 p-4 rounded-xl text-center">
-          <span class="text-xs text-amber-400/80 block uppercase font-bold">Current Bid</span>
-          <div id="current-bid-display" class="text-2xl font-black text-amber-400 mt-1">No Bids Yet</div>
+      <div id="active-game" class="hidden space-y-4">
+        <div class="bg-slate-700/40 p-4 rounded-xl border border-slate-600 text-center">
+          <div class="text-xs text-slate-400 mb-1">Your Dice</div>
+          <div id="my-dice" class="flex justify-center gap-2 text-2xl font-bold text-amber-400">----</div>
         </div>
-
-        <div class="bg-slate-700/40 p-4 rounded-xl border border-slate-600/50 text-center">
-          <div class="text-xs text-slate-400 font-semibold mb-2">Your Secret Dice</div>
-          <div id="my-dice" class="flex justify-center gap-2 text-3xl font-extrabold my-2">----</div>
-        </div>
-
-        <div id="turn-action-zone" class="space-y-3 bg-slate-900 p-4 rounded-xl border border-slate-700">
-          <div class="flex items-center justify-center gap-3">
-            <input type="number" id="bid-count" min="1" value="2" class="w-20 bg-slate-800 border border-slate-600 rounded-lg p-2 text-center text-amber-400 font-bold">
-            <span>Quantity of</span>
-            <select id="bid-point" class="bg-slate-800 border border-slate-600 rounded-lg p-2 text-amber-400 font-bold">
-              <option value="1">1s (Wild)</option>
-              <option value="2">2s</option>
-              <option value="3">3s</option>
-              <option value="4">4s</option>
-              <option value="5">5s</option>
-              <option value="6">6s</option>
-            </select>
-          </div>
-          
-          <div class="grid grid-cols-2 gap-3">
-            <button onclick="makeBid()" id="btn-bid" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg">Make Bid</button>
-            <button onclick="challenge()" id="btn-open" class="bg-rose-600 hover:bg-rose-500 text-white font-bold py-3 rounded-lg">Call Liar!</button>
-          </div>
-        </div>
+        <div id="bid-display" class="text-center text-sm font-bold text-amber-300">No Bids Yet</div>
       </div>
-
-      <!-- Activity Log -->
-      <div id="game-log" class="bg-slate-950 p-3 rounded-lg h-28 overflow-y-auto text-xs text-slate-400 space-y-1 font-mono border border-slate-800"></div>
-
     </div>
   </div>
 
   <script>
-    // ⚠️ REPLACE THIS WITH YOUR FIREBASE CONFIG
+    // 1. REPLACE WITH YOUR ACTUAL FIREBASE KEYS
     const firebaseConfig = {
       apiKey: "YOUR_API_KEY",
       authDomain: "YOUR_PROJECT.firebaseapp.com",
@@ -105,22 +77,36 @@
       appId: "1:123456789:web:abcdef"
     };
 
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.database();
+    let db;
+    let myPlayerId = 'p_' + Math.random().toString(36).substr(2, 8);
+    let myName = '', roomId = '', isHost = false;
 
-    const myPlayerId = 'p_' + Math.random().toString(36).substr(2, 9);
-    let myName = '';
-    let roomId = '';
-    let isHost = false;
-    let isReady = false;
-    let myDice = [];
-    const diceIcons = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+    // Attach Event Listeners on DOM Load to avoid inline onclick failures
+    window.addEventListener('DOMContentLoaded', () => {
+      const statusEl = document.getElementById('debug-status');
+
+      try {
+        if (!firebase.apps.length) {
+          firebase.initializeApp(firebaseConfig);
+        }
+        db = firebase.database();
+        statusEl.innerText = "Connected to Firebase SDK! Ready.";
+        statusEl.className = "text-center text-xs text-emerald-400 bg-emerald-950/40 p-2 rounded mb-4 border border-emerald-800/50";
+      } catch (e) {
+        statusEl.innerText = "Firebase Init Failed: " + e.message;
+        statusEl.className = "text-center text-xs text-rose-400 bg-rose-950/40 p-2 rounded mb-4 border border-rose-800/50";
+        return;
+      }
+
+      document.getElementById('btn-create').addEventListener('click', createRoom);
+      document.getElementById('btn-join').addEventListener('click', joinRoom);
+    });
 
     function getInputs() {
       myName = document.getElementById('playerName').value.trim();
       roomId = document.getElementById('roomId').value.trim();
       if (!myName || !roomId) {
-        alert("Please enter both your name and room code!");
+        alert("Please enter both Name and Room Code.");
         return false;
       }
       return true;
@@ -130,16 +116,14 @@
       if (!getInputs()) return;
 
       const roomRef = db.ref(`rooms/${roomId}`);
-      roomRef.once('value').then((snapshot) => {
+      roomRef.once('value', (snapshot) => {
         if (snapshot.exists()) {
-          alert("Room code already exists! Choose a different room code or click 'Join Room'.");
+          alert("Room code already taken. Try another code or click Join.");
           return;
         }
 
         isHost = true;
-        isReady = true;
-
-        const initialData = {
+        const initialRoom = {
           hostId: myPlayerId,
           state: 'lobby',
           players: {
@@ -147,10 +131,12 @@
           }
         };
 
-        roomRef.set(initialData).then(() => {
-          enterRoomUI();
-        }).catch((err) => {
-          alert("Firebase Write Error: " + err.message);
+        roomRef.set(initialRoom, (error) => {
+          if (error) {
+            alert("Database Error: " + error.message);
+          } else {
+            enterRoomUI();
+          }
         });
       });
     }
@@ -159,23 +145,23 @@
       if (!getInputs()) return;
 
       const roomRef = db.ref(`rooms/${roomId}`);
-      roomRef.once('value').then((snapshot) => {
+      roomRef.once('value', (snapshot) => {
         if (!snapshot.exists()) {
-          alert("Room does not exist! Please click 'Create Room' to host it.");
+          alert("Room does not exist. Click 'Create Room' first.");
           return;
         }
 
         isHost = false;
-        isReady = false;
-
         db.ref(`rooms/${roomId}/players/${myPlayerId}`).set({
           name: myName,
           isReady: false,
           dice: []
-        }).then(() => {
-          enterRoomUI();
-        }).catch((err) => {
-          alert("Firebase Join Error: " + err.message);
+        }, (error) => {
+          if (error) {
+            alert("Database Error: " + error.message);
+          } else {
+            enterRoomUI();
+          }
         });
       });
     }
@@ -186,162 +172,33 @@
       document.getElementById('disp-room').innerText = roomId;
       document.getElementById('disp-role').innerText = isHost ? "Host 👑" : "Player";
 
-      // Disconnect cleanup
       db.ref(`rooms/${roomId}/players/${myPlayerId}`).onDisconnect().remove();
 
-      // Listen for all room updates
       db.ref(`rooms/${roomId}`).on('value', (snapshot) => {
         const data = snapshot.val();
-        if (data) updateRoomState(data);
-      });
-    }
+        if (!data) return;
 
-    function toggleReady() {
-      isReady = !isReady;
-      db.ref(`rooms/${roomId}/players/${myPlayerId}/isReady`).set(isReady);
-    }
+        const players = data.players || {};
+        const pContainer = document.getElementById('players-list');
+        pContainer.innerHTML = '';
 
-    function updateRoomState(data) {
-      const players = data.players || {};
-      const playerIds = Object.keys(players);
-
-      if (data.hostId === myPlayerId) {
-        isHost = true;
-        document.getElementById('disp-role').innerText = "Host 👑";
-      }
-
-      // Render Players
-      const pContainer = document.getElementById('players-list');
-      pContainer.innerHTML = '';
-      let allReady = true;
-
-      playerIds.forEach(id => {
-        const p = players[id];
-        if (!p.isReady) allReady = false;
-
-        const isCurrentTurn = data.currentTurn === id;
-        pContainer.innerHTML += `
-          <div class="bg-slate-800 p-2.5 rounded-lg border ${isCurrentTurn ? 'border-emerald-400 bg-emerald-950/20' : 'border-slate-700'} text-xs flex justify-between items-center">
-            <span class="font-bold ${id === myPlayerId ? 'text-amber-400' : 'text-slate-200'}">
-              ${p.name} ${id === data.hostId ? '👑' : ''} ${id === myPlayerId ? '(You)' : ''}
-            </span>
-            <span class="${p.isReady ? 'text-emerald-400' : 'text-rose-400'} font-bold">
-              ${p.isReady ? 'READY' : 'NOT READY'}
-            </span>
-          </div>
-        `;
-      });
-
-      // Handle Game Phase UI
-      const isLobbyState = data.state === 'lobby';
-      document.getElementById('disp-status').innerText = isLobbyState ? 'Lobby' : 'In Game';
-
-      if (isLobbyState) {
-        document.getElementById('pregame-controls').classList.remove('hidden');
-        document.getElementById('active-game-controls').classList.add('hidden');
+        Object.keys(players).forEach(id => {
+          const p = players[id];
+          pContainer.innerHTML += `
+            <div class="bg-slate-800 p-2 rounded border border-slate-700 flex justify-between text-xs">
+              <span class="font-bold ${id === myPlayerId ? 'text-amber-400' : 'text-slate-200'}">${p.name} ${id === data.hostId ? '👑' : ''}</span>
+              <span class="${p.isReady ? 'text-emerald-400' : 'text-rose-400'} font-bold">${p.isReady ? 'READY' : 'NOT READY'}</span>
+            </div>
+          `;
+        });
 
         if (isHost) {
-          const btnStart = document.getElementById('btn-start-game');
-          btnStart.classList.remove('hidden');
-          document.getElementById('btn-toggle-ready').classList.add('hidden');
-          
-          btnStart.disabled = !(playerIds.length >= 2 && allReady);
-          btnStart.innerText = allReady ? (playerIds.length >= 2 ? "Start Game" : "Need at least 2 players") : "Waiting for All Players to Ready";
+          document.getElementById('host-controls').classList.remove('hidden');
+          document.getElementById('player-controls').classList.add('hidden');
         } else {
-          document.getElementById('btn-start-game').classList.add('hidden');
-          const btnReady = document.getElementById('btn-toggle-ready');
-          btnReady.classList.remove('hidden');
-          btnReady.innerText = players[myPlayerId]?.isReady ? "Cancel Ready" : "Click to Ready";
+          document.getElementById('host-controls').classList.add('hidden');
+          document.getElementById('player-controls').classList.remove('hidden');
         }
-      } else {
-        document.getElementById('pregame-controls').classList.add('hidden');
-        document.getElementById('active-game-controls').classList.remove('hidden');
-
-        myDice = players[myPlayerId]?.dice || [];
-        document.getElementById('my-dice').innerHTML = myDice.map(d => 
-          `<span class="bg-slate-800 px-2.5 py-1 rounded border border-slate-600 text-amber-400">${diceIcons[d-1]}</span>`
-        ).join('');
-
-        if (data.lastBid) {
-          document.getElementById('current-bid-display').innerText = `${data.lastBid.count} × [ ${data.lastBid.point}s ] (${data.lastBid.by})`;
-        } else {
-          document.getElementById('current-bid-display').innerText = "No Bids Yet";
-        }
-
-        const isMyTurn = data.currentTurn === myPlayerId;
-        document.getElementById('btn-bid').disabled = !isMyTurn;
-        document.getElementById('btn-open').disabled = !isMyTurn;
-      }
-    }
-
-    function startGame() {
-      db.ref(`rooms/${roomId}`).once('value').then((snapshot) => {
-        const data = snapshot.val();
-        const playerIds = Object.keys(data.players || {});
-        
-        playerIds.forEach(pid => {
-          const rolled = Array.from({length: 5}, () => Math.floor(Math.random() * 6) + 1);
-          db.ref(`rooms/${roomId}/players/${pid}/dice`).set(rolled);
-        });
-
-        db.ref(`rooms/${roomId}`).update({
-          state: 'playing',
-          currentTurn: playerIds[0],
-          lastBid: null
-        });
-      });
-    }
-
-    function makeBid() {
-      const count = parseInt(document.getElementById('bid-count').value);
-      const point = parseInt(document.getElementById('bid-point').value);
-
-      db.ref(`rooms/${roomId}`).transaction((room) => {
-        if (!room) return room;
-        room.lastBid = { count, point, by: myName, playerId: myPlayerId };
-        
-        const pKeys = Object.keys(room.players || {});
-        let nextIdx = (pKeys.indexOf(myPlayerId) + 1) % pKeys.length;
-        room.currentTurn = pKeys[nextIdx];
-
-        return room;
-      });
-    }
-
-    function challenge() {
-      db.ref(`rooms/${roomId}`).once('value').then((snapshot) => {
-        const data = snapshot.val();
-        if (!data || !data.lastBid) return alert("Nobody has made a bid yet!");
-
-        const targetPoint = data.lastBid.point;
-        let totalMatches = 0;
-        let showResults = [];
-
-        Object.values(data.players || {}).forEach(p => {
-          let pMatches = 0;
-          (p.dice || []).forEach(d => {
-            if (d === targetPoint || d === 1) pMatches++;
-          });
-          totalMatches += pMatches;
-          showResults.push(`${p.name}: [${p.dice.join(', ')}]`);
-        });
-
-        const win = totalMatches >= data.lastBid.count;
-        alert(`🔥 SHOWDOWN!\nBid was: ${data.lastBid.count} × [${targetPoint}s]\nActual Count (inc. 1s): ${totalMatches}\n\nAll Dice:\n${showResults.join('\n')}\n\n${win ? 'Challenger lost! Bidder was telling truth.' : 'Challenger won! Bidder lied.'}`);
-
-        const playerIds = Object.keys(data.players || {});
-        playerIds.forEach(pid => {
-          db.ref(`rooms/${roomId}/players/${pid}`).update({
-            isReady: pid === data.hostId,
-            dice: []
-          });
-        });
-
-        db.ref(`rooms/${roomId}`).update({
-          state: 'lobby',
-          lastBid: null,
-          currentTurn: null
-        });
       });
     }
   </script>
