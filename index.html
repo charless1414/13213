@@ -1,11 +1,11 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Liar's Dice Online</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Firebase Compatibility Libraries -->
+  <!-- Firebase Compatibility SDKs -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 </head>
@@ -14,37 +14,48 @@
   <div class="max-w-md w-full bg-slate-800 rounded-2xl p-6 shadow-2xl border border-slate-700">
     <h1 class="text-3xl font-extrabold text-amber-400 text-center mb-6">🎲 Liar's Dice</h1>
 
-    <!-- Debug Banner to verify script readiness -->
+    <!-- Connection Status Banner -->
     <div id="debug-status" class="text-center text-xs text-amber-300 bg-amber-950/40 p-2 rounded mb-4 border border-amber-800/50">
-      Initializing connection...
+      Connecting to Firebase...
     </div>
 
-    <!-- LOBBY SCREEN -->
+    <!-- LOBBY ZONE -->
     <div id="lobby-zone" class="space-y-4">
       <div>
         <label class="text-sm font-semibold text-slate-400">Your Name</label>
         <input type="text" id="playerName" placeholder="e.g. Alex" class="w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg p-3 text-amber-400 font-bold focus:outline-none">
       </div>
-      <div>
-        <label class="text-sm font-semibold text-slate-400">Room Code</label>
-        <input type="text" id="roomId" placeholder="e.g. 888" class="w-full mt-1 bg-slate-900 border border-slate-700 rounded-lg p-3 text-white font-bold focus:outline-none">
-      </div>
       
-      <div class="grid grid-cols-2 gap-3 pt-2">
-        <button id="btn-create" type="button" class="bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold py-3 rounded-lg shadow transition">Create Room</button>
-        <button id="btn-join" type="button" class="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-3 rounded-lg shadow transition">Join Room</button>
+      <!-- Option 1: Create New Room (Auto-code) -->
+      <button id="btn-create" type="button" class="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold py-3 rounded-lg shadow transition">
+        ➕ Create New Room
+      </button>
+
+      <div class="relative flex py-2 items-center">
+        <div class="flex-grow border-t border-slate-700"></div>
+        <span class="flex-shrink mx-4 text-xs text-slate-500 font-bold uppercase">Or Join Existing</span>
+        <div class="flex-grow border-t border-slate-700"></div>
+      </div>
+
+      <!-- Option 2: Join Existing Room -->
+      <div class="space-y-2">
+        <input type="text" id="roomIdInput" placeholder="Enter Room Code (e.g. A8K2P9)" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white font-bold focus:outline-none uppercase tracking-widest text-center">
+        <button id="btn-join" type="button" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-3 rounded-lg shadow transition">
+          🚀 Join Room
+        </button>
       </div>
     </div>
 
-    <!-- GAME ROOM SCREEN -->
+    <!-- GAME ROOM ZONE -->
     <div id="game-zone" class="hidden space-y-4">
-      <div class="bg-slate-900 p-3 rounded-lg border border-slate-700 text-sm flex justify-between">
-        <div>Room: <span id="disp-room" class="font-bold text-amber-400">--</span></div>
-        <div>Role: <span id="disp-role" class="font-bold text-indigo-400">--</span></div>
+      <div class="bg-slate-900 p-4 rounded-xl border border-slate-700 text-center space-y-1">
+        <div class="text-xs text-slate-400 uppercase font-semibold">Room Code</div>
+        <div id="disp-room" class="text-3xl font-black text-amber-400 tracking-widest select-all">------</div>
+        <div class="text-xs text-indigo-400 font-bold pt-1">Role: <span id="disp-role">--</span></div>
       </div>
 
       <div class="bg-slate-900/50 p-4 rounded-xl border border-slate-700">
-        <h3 class="text-xs font-semibold text-slate-400 uppercase mb-2">Players</h3>
+        <h3 class="text-xs font-semibold text-slate-400 uppercase mb-2">Players in Room</h3>
         <div id="players-list" class="space-y-2"></div>
       </div>
 
@@ -54,19 +65,11 @@
       <div id="player-controls" class="hidden">
         <button id="btn-ready" type="button" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-3 rounded-lg">Ready Up</button>
       </div>
-
-      <div id="active-game" class="hidden space-y-4">
-        <div class="bg-slate-700/40 p-4 rounded-xl border border-slate-600 text-center">
-          <div class="text-xs text-slate-400 mb-1">Your Dice</div>
-          <div id="my-dice" class="flex justify-center gap-2 text-2xl font-bold text-amber-400">----</div>
-        </div>
-        <div id="bid-display" class="text-center text-sm font-bold text-amber-300">No Bids Yet</div>
-      </div>
     </div>
   </div>
 
   <script>
-    // 1. REPLACE WITH YOUR ACTUAL FIREBASE KEYS
+    // ⚠️ REPLACE WITH YOUR REAL FIREBASE KEYS
     const firebaseConfig = {
       apiKey: "YOUR_API_KEY",
       authDomain: "YOUR_PROJECT.firebaseapp.com",
@@ -79,9 +82,18 @@
 
     let db;
     let myPlayerId = 'p_' + Math.random().toString(36).substr(2, 8);
-    let myName = '', roomId = '', isHost = false;
+    let myName = '', currentRoomId = '', isHost = false;
 
-    // Attach Event Listeners on DOM Load to avoid inline onclick failures
+    // Generate random 6-character uppercase room code
+    function generateRoomCode() {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Excludes confusing characters like 0, O, 1, I
+      let result = '';
+      for (let i = 0; i < 6; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return result;
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       const statusEl = document.getElementById('debug-status');
 
@@ -102,57 +114,50 @@
       document.getElementById('btn-join').addEventListener('click', joinRoom);
     });
 
-    function getInputs() {
-      myName = document.getElementById('playerName').value.trim();
-      roomId = document.getElementById('roomId').value.trim();
-      if (!myName || !roomId) {
-        alert("Please enter both Name and Room Code.");
-        return false;
-      }
-      return true;
-    }
-
     function createRoom() {
-      if (!getInputs()) return;
+      myName = document.getElementById('playerName').value.trim();
+      if (!myName) {
+        alert("Please enter your name first.");
+        return;
+      }
 
-      const roomRef = db.ref(`rooms/${roomId}`);
-      roomRef.once('value', (snapshot) => {
-        if (snapshot.exists()) {
-          alert("Room code already taken. Try another code or click Join.");
-          return;
+      currentRoomId = generateRoomCode();
+      const roomRef = db.ref(`rooms/${currentRoomId}`);
+
+      isHost = true;
+      const initialRoom = {
+        hostId: myPlayerId,
+        state: 'lobby',
+        players: {
+          [myPlayerId]: { name: myName, isReady: true, dice: [] }
         }
+      };
 
-        isHost = true;
-        const initialRoom = {
-          hostId: myPlayerId,
-          state: 'lobby',
-          players: {
-            [myPlayerId]: { name: myName, isReady: true, dice: [] }
-          }
-        };
-
-        roomRef.set(initialRoom, (error) => {
-          if (error) {
-            alert("Database Error: " + error.message);
-          } else {
-            enterRoomUI();
-          }
-        });
+      roomRef.set(initialRoom, (error) => {
+        if (error) {
+          alert("Database Error: " + error.message);
+        } else {
+          enterRoomUI();
+        }
       });
     }
 
     function joinRoom() {
-      if (!getInputs()) return;
+      myName = document.getElementById('playerName').value.trim();
+      currentRoomId = document.getElementById('roomIdInput').value.trim().toUpperCase();
 
-      const roomRef = db.ref(`rooms/${roomId}`);
+      if (!myName) return alert("Please enter your name.");
+      if (!currentRoomId) return alert("Please enter a room code to join.");
+
+      const roomRef = db.ref(`rooms/${currentRoomId}`);
       roomRef.once('value', (snapshot) => {
         if (!snapshot.exists()) {
-          alert("Room does not exist. Click 'Create Room' first.");
+          alert("Room code not found! Please double check the code.");
           return;
         }
 
         isHost = false;
-        db.ref(`rooms/${roomId}/players/${myPlayerId}`).set({
+        db.ref(`rooms/${currentRoomId}/players/${myPlayerId}`).set({
           name: myName,
           isReady: false,
           dice: []
@@ -169,12 +174,14 @@
     function enterRoomUI() {
       document.getElementById('lobby-zone').classList.add('hidden');
       document.getElementById('game-zone').classList.remove('hidden');
-      document.getElementById('disp-room').innerText = roomId;
+      document.getElementById('disp-room').innerText = currentRoomId;
       document.getElementById('disp-role').innerText = isHost ? "Host 👑" : "Player";
 
-      db.ref(`rooms/${roomId}/players/${myPlayerId}`).onDisconnect().remove();
+      // Disconnect cleanup
+      db.ref(`rooms/${currentRoomId}/players/${myPlayerId}`).onDisconnect().remove();
 
-      db.ref(`rooms/${roomId}`).on('value', (snapshot) => {
+      // Listen for room updates
+      db.ref(`rooms/${currentRoomId}`).on('value', (snapshot) => {
         const data = snapshot.val();
         if (!data) return;
 
@@ -185,7 +192,7 @@
         Object.keys(players).forEach(id => {
           const p = players[id];
           pContainer.innerHTML += `
-            <div class="bg-slate-800 p-2 rounded border border-slate-700 flex justify-between text-xs">
+            <div class="bg-slate-800 p-2.5 rounded-lg border border-slate-700 flex justify-between items-center text-xs">
               <span class="font-bold ${id === myPlayerId ? 'text-amber-400' : 'text-slate-200'}">${p.name} ${id === data.hostId ? '👑' : ''}</span>
               <span class="${p.isReady ? 'text-emerald-400' : 'text-rose-400'} font-bold">${p.isReady ? 'READY' : 'NOT READY'}</span>
             </div>
