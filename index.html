@@ -167,28 +167,25 @@
       document.getElementById('btn-liar').onclick = handleCallLiar;
     });
 
+    function safeEnableCreate(createBtn, statusMsg) {
+      try {
+        createBtn.disabled = false;
+        createBtn.innerText = "➕ Create New Room";
+        if (statusMsg) document.getElementById('debug-status').innerText = statusMsg;
+      } catch (e) { /* ignore */ }
+    }
+
+    // Robust createRoom using Promise.race with timeout and retries
     function handleCreateRoom() {
-      myName = document.getElementById('playerName').value.trim();
       const createBtn = document.getElementById('btn-create');
       createBtn.disabled = true;
       createBtn.innerText = "Creating...";
 
-      if (!myName) {
-        alert("Please enter your name!");
-        createBtn.disabled = false;
-        createBtn.innerText = "➕ Create New Room";
-        return;
-      }
-
-      if (!db) {
-        alert('Not connected to Firebase.');
-        createBtn.disabled = false;
-        createBtn.innerText = "➕ Create New Room";
-        return;
-      }
+      myName = document.getElementById('playerName').value.trim();
+      if (!myName) { alert('Please enter your name!'); safeEnableCreate(createBtn); return; }
+      if (!db) { alert('Not connected to Firebase.'); safeEnableCreate(createBtn, 'Firebase not connected'); return; }
 
       detachCurrentRoomListener();
-
       isHost = true;
 
       const initialDataTemplate = () => ({
@@ -197,44 +194,58 @@
         turn: myPlayerId,
         currentBid: null,
         playersOrder: [myPlayerId],
-        players: {
-          [myPlayerId]: { name: myName, dice: [] }
-        }
+        players: { [myPlayerId]: { name: myName, dice: [] } }
       });
 
-      // Try to create a unique 6-char room code using a transaction to avoid collisions
-      function tryCreate(attemptsLeft) {
-        const code = makeCode();
-        const roomRef = db.ref(`rooms/${code}`);
-        roomRef.transaction(room => {
-          if (room) return; // already exists -> abort
-          return initialDataTemplate();
-        }, (err, committed, snapshot) => {
-          if (err) {
-            alert('Database Error: ' + err.message);
-            createBtn.disabled = false;
-            createBtn.innerText = "➕ Create New Room";
-            return;
-          }
-
-          if (!committed) {
-            // collision, try again (limited attempts)
-            if (attemptsLeft > 0) return tryCreate(attemptsLeft - 1);
-            alert('Unable to create room after multiple attempts. Please try again.');
-            createBtn.disabled = false;
-            createBtn.innerText = "➕ Create New Room";
-            return;
-          }
-
-          // success
-          currentRoomId = code;
-          enterRoomUI();
-          createBtn.disabled = false;
-          createBtn.innerText = "➕ Create New Room";
+      function createOnce(code) {
+        return new Promise((resolve, reject) => {
+          try {
+            const roomRef = db.ref(`rooms/${code}`);
+            roomRef.transaction(room => {
+              if (room) return; // exists -> abort
+              return initialDataTemplate();
+            }, (err, committed) => {
+              if (err) return reject(err);
+              resolve(committed === true);
+            }, false);
+          } catch (ex) { reject(ex); }
         });
       }
 
-      tryCreate(3);
+      (async () => {
+        const attempts = 4;
+        const timeoutMs = 10000;
+        let ok = false;
+        try {
+          for (let i = 0; i < attempts && !ok; i++) {
+            const code = makeCode();
+            document.getElementById('debug-status').innerText = `Trying ${code} (attempt ${i+1})...`;
+            try {
+              ok = await Promise.race([
+                createOnce(code),
+                new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), timeoutMs))
+              ]);
+            } catch (e) {
+              console.warn('create attempt failed', e);
+              ok = false;
+            }
+
+            if (ok) {
+              currentRoomId = code;
+              document.getElementById('debug-status').innerText = `Created room ${code}`;
+              enterRoomUI();
+              break;
+            }
+          }
+
+          if (!ok) alert('Unable to create a room after multiple attempts. Try again later.');
+        } catch (e) {
+          console.error(e);
+          alert('Unexpected error creating room: ' + e.message);
+        } finally {
+          safeEnableCreate(createBtn);
+        }
+      })();
     }
 
     function handleJoinRoom() {
